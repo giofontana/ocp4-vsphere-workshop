@@ -325,3 +325,45 @@ status:
 oc patch ds machine-config-daemon -n openshift-machine-config-operator  --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
 
 oc patch ds node-ca -n openshift-image-registry --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
+
+---- Pecora Tests ---- (TEST 1- change only machine Set)
+
+1. clone a template from the current worker machine sets
+
+oc get machinesets machineSetName -o yaml > machineSet-original.yaml
+
+2. copy cloned machineset template unto new file to make proper changes
+
+cp machineSet-original.yaml machineSet-infra.yaml
+
+3. edit the variables according docs and engineer reference files:
+
+sed s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g
+
+4. Verify if vpc and group name are the same.
+
+5. Create the new machineset and check under machines if it start to spawn, check under Google Cloud console the new machine creation, after Gcloud console starts the machine check under oc get nodes to see if it was properly created and Ready.
+
+
+--- Pecora Tests ---- (TEST 2 - machineconfig, machineconfigpool and  machine Set)
+
+1. clone a template from the current worker machine sets
+
+oc get machinesets machineSetName -o yaml > machineSet-original.yaml
+
+2. copy cloned machineset template unto new file to make proper changes
+
+cp machineSet-original.yaml machineSet-infra.yaml
+
+3. edit the variables according docs and engineer reference files:
+
+sed s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g
+
+4. Verify if vpc and group name are the same.
+
+5. Create the new machineset and check under machines if it start to spawn, check under Google Cloud co
+nsole the new machine creation, after Gcloud console starts the machine check under oc get nodes to see
+ if it was properly created and Ready. 
+
+
+--- Pecora Tests ---- (TEST 3 - Mcp pool and taints e toleration)
