@@ -1,52 +1,443 @@
+TEST 1 - CREATE ONLY MACHINESET AND ADJUST TO A NODE-SELECTOR LABEL
 
-. Label the `node-role.kubernetes.io/infra` nodes:
+Execution:
 
-----
-oc label node infra-0.ocp4.rhbr-labs.com node-role.kubernetes.io/infra=
-oc label node infra-1.ocp4.rhbr-labs.com node-role.kubernetes.io/infra=
-oc label node router-0.ocp4.rhbr-labs.com node-role.kubernetes.io/infra=
-oc label node router-1.ocp4.rhbr-labs.com node-role.kubernetes.io/infra=
-----
+In the first test, we create only a machineset and apply node-selector, below the steps to procedure these tests:
 
-. Label the router and infra nodes:
-----
-oc label node infra-0.ocp4.rhbr-labs.com role=infra
-oc label node infra-1.ocp4.rhbr-labs.com role=infra
-oc label node router-0.ocp4.rhbr-labs.com role=router
-oc label node router-1.ocp4.rhbr-labs.com role=router
-----
+1. clone a template from the current worker machine sets
+
+oc get machinesets machineSetName -o yaml > machineSet-original.yaml
+
+2. copy cloned machineset template into new file to make proper changes
+
+cp machineSet-original.yaml machineSet-infra.yaml
+
+3. edit the following variables according docs and engineer reference files:
+
+ name: ocp4-8bjtp-i-b
+ machine.openshift.io/cluster-api-machineset: ocp4-8bjtp-i-b
+ machine.openshift.io/cluster-api-machine-role: infra
+ machine.openshift.io/cluster-api-machine-type: infra
+ machine.openshift.io/cluster-api-machineset: cp4-8bjtp-i-b
+
+4. Add node-selector label:       
+
+labels:
+         node-role.kubernetes.io/infra: ""
+
+5. Waiting until infra nodes are ready and then try to update your cluster:
+Result: FAIL. The updating took too longer and get a lot of errors. This occurred because machineconfigset and node selector the ipi installer cannot proceed properly without a machine config pool tied to an ipi at Google Cloud.
 
 
-. Remove the worker label
 
-----
-oc label node infra-0.ocp4.rhbr-labs.com node-role.kubernetes.io/worker- 
-oc label node infra-1.ocp4.rhbr-labs.com node-role.kubernetes.io/worker- 
-oc label node router-0.ocp4.rhbr-labs.com node-role.kubernetes.io/worker- 
-oc label node router-1.ocp4.rhbr-labs.com node-role.kubernetes.io/worker- 
-----
 
-. Create a MachineConfigPool for the infra nodes
 
+TEST 2 - CREATE MACHINESET, MACHINECONFIG, MACHINECONFIGPOOL AND ADJUST TO A NODE-SELECTOR LABEL
+
+This second test consists in another way to accomplish the task to create infrastructure node.
+The steps are very similar, otherwise it consists of creating a machine config pool , machine config afterward it supports a new machine config pool created.
+
+1. clone a template from the current worker machine sets
+
+oc get machinesets machineSetName -o yaml > machineSet-original.yaml
+
+2. Create MachineconfigPool according to the example below:
+Create a MachineConfigPool for the infra nodes
+ 
 ----
 cat <<EOF > infra-mcp.yaml
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfigPool
 metadata:
-  name: infra
+ name: infra
 spec:
-  machineConfigSelector:
-    matchExpressions:
-      - {key: machineconfiguration.openshift.io/role, operator: In, values: [worker,infra]}
-  nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/infra: ""
+ machineConfigSelector:
+   matchExpressions:
+     - {key: machineconfiguration.openshift.io/role, operator: In, values: [worker,infra]}
+ nodeSelector:
+   matchLabels:
+     node-role.kubernetes.io/infra: ""
+EOF
+ 
+oc create -f infra-mcp.yaml
+
+
+3. Create  Machine config according to example below (infra-mc.yaml):
+
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+ labels:
+   machineconfiguration.openshift.io/role: infra
+ name: infra
+spec:
+ config:
+   ignition:
+     version: 2.2.0
+   storage:
+     files:
+     - contents:
+         source: data:,infra
+       filesystem: root
+       mode: 0644
+       path: /etc/infra
+
+oc create -f infra-mc.yaml
+
+4. copy cloned machineset template into new file to make proper changes
+
+cp machineSet-original.yaml machineSet-infra.yaml
+
+5. Under machineSet edit the variables according docs and engineer reference files:
+Remove creationTimeStamp, uid, resourceVersion and selfLink
+Change machineset name to new one
+Set replicas to 1 (one)
+Add label: node-role.kubernetes.io/infra: ""
+
+See machineset sample file below (machineset-ocp4-8bjtp-i-b.yaml):
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+ labels:
+   machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+ name: ocp4-8bjtp-i-b
+ namespace: openshift-machine-api
+spec:
+ replicas: 1
+ selector:
+   matchLabels:
+     machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+     machine.openshift.io/cluster-api-machineset: ocp4-8bjtp-i-b
+ template:
+   metadata:
+     creationTimestamp: null
+     labels:
+       machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+       machine.openshift.io/cluster-api-machine-role: infra
+       machine.openshift.io/cluster-api-machine-type: infra
+       machine.openshift.io/cluster-api-machineset: ocp4-8bjtp-i-b
+   spec:
+     metadata:
+       creationTimestamp: null
+       labels:
+         node-role.kubernetes.io/infra: ""
+     providerSpec:
+       value:
+         apiVersion: gcpprovider.openshift.io/v1beta1
+         canIPForward: false
+         credentialsSecret:
+           name: gcp-cloud-credentials
+         deletionProtection: false
+         disks:
+         - autoDelete: true
+           boot: true
+           image: ocp4-8bjtp-rhcos-image
+           labels: null
+           sizeGb: 128
+           type: pd-ssd
+         kind: GCPMachineProviderSpec
+         machineType: n1-standard-2
+         metadata:
+           creationTimestamp: null
+         networkInterfaces:
+         - network: ocp4-8bjtp-network
+           subnetwork: ocp4-8bjtp-worker-subnet
+         projectID: gcloud-ocp4-273122
+         region: us-east1
+         serviceAccounts:
+         - email: ocp4-8bjtp-w@gcloud-ocp4-273122.iam.gserviceaccount.com
+           scopes:
+           - https://www.googleapis.com/auth/cloud-platform
+         tags:
+         - ocp4-8bjtp-worker
+         userDataSecret:
+           name: worker-user-data
+         zone: us-east1-b
+ 
+
+
+Change all machine-role and machine-type to infra:
+
+sed -i  s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g machineset-ocp4-8bjtp-i-b.yaml
+
+6. Create the new machineset and check under machines if it start to spawn, check under Google Cloud console the new machine creation, after Gcloud console starts the machine check under oc get nodes to see if it was properly created and remains Ready.
+
+oc create -f machineset-ocp4-8bjtp-i-b.yaml
+	
+7. Move monitoring stack (openshift-monitoring) to infra nodes recently created, so to accomplish these  task just change the monitoring configmap to node-selector	
+
+cat <<EOF > cluster-monitoring-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+ name: cluster-monitoring-config
+ namespace: openshift-monitoring
+data:
+ config.yaml: |+
+   alertmanagerMain:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   prometheusK8s:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   prometheusOperator:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   grafana:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   k8sPrometheusAdapter:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   kubeStateMetrics:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   telemeterClient:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+   openshiftStateMetrics:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
 EOF
 
-oc create -f infra-mcp.yaml
-----
+oc create -f cluster-monitoring-configmap.yaml
 
-. Check the status of the new MCP and wait until the infra MCP `UPDATED` column shows True, `UPDATING` and `DEGRADATED` as false.
+7. Update machine-config-daemon in order to update machine count under machines results, otherwise machine count will appear incorrectly number of machines under its type.
+
+oc patch ds machine-config-daemon -n openshift-machine-config-operator  --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
+
+ 
+8 . The last step is try to update the cluster and check if everything remains working and nodes are properly update, infra ones included on the upgrade.
+
+ 
+
+IMPORTANT: check in the previous screenshot that I had proposed 2 infra nodes with infra and worker label roles together, and 02 other infra nodes  with infra roles only. After the cluster updated, everything worked fine, because machineset, machine config and machineconfigpool were properly set.
+The second test seems a good approach to create a machineset infra, however it is still vulnerable to whoever user can improperly set a node-role.kubernetes.io/infra=""  label to a project and a project workload will starts on infra nodes. In the last test, I will show a similar approach that can solve this issue.
+
+
+
+TEST 3 - CREATE MACHINESET, MACHINECONFIGPOOL, TAINTS AND TOLERATIONS
+
+
+The last tests seemed a flexible approach against two previous tests because you can create different types of machines and also you can preserve the infra nodes only to projects related to openshift 4 infrastructure. 
+
+The steps are very similar, and it consists to create also a machineset, machine config pool and adjust infra nodes under taints and toleration techniques.
+
+
+1. clone a template from the current worker machine sets
+
+oc get machinesets machineSetName -o yaml > machineSet-original.yaml
+
+2. Create  Machine config pool according to example below (infra-mc.yaml):
+
+Create a MachineConfigPool for the infra nodes
+ 
+----
+cat <<EOF > infra-mcp.yaml
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+ name: infra
+spec:
+ machineConfigSelector:
+   matchExpressions:
+     - {key: machineconfiguration.openshift.io/role, operator: In, values: [worker,infra]}
+ nodeSelector:
+   matchLabels:
+     node-role.kubernetes.io/infra: ""
+EOF
+ 
+oc create -f infra-mcp.yaml
+
+3. copy cloned machineset template into new file to make proper changes
+
+cp machineSet-original.yaml machineSet-infra.yaml
+
+4. edit the variables according docs and engineer reference files:
+Remove creationTimeStamp, uid, resourceVersion and selfLink
+Change machineset name to new one
+Set replicas to 0 (zero)
+Add label: node-role.kubernetes.io/infra: ""
+
+See machineset sample file below (machineset-ocp4-8bjtp-i-b.yaml):
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+ labels:
+   machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+ name: ocp4-8bjtp-i-b
+ namespace: openshift-machine-api
+spec:
+ replicas: 1
+ selector:
+   matchLabels:
+     machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+     machine.openshift.io/cluster-api-machineset: ocp4-8bjtp-i-b
+ template:
+   metadata:
+     creationTimestamp: null
+     labels:
+       machine.openshift.io/cluster-api-cluster: ocp4-8bjtp
+       machine.openshift.io/cluster-api-machine-role: infra
+       machine.openshift.io/cluster-api-machine-type: infra
+       machine.openshift.io/cluster-api-machineset: ocp4-8bjtp-i-b
+   spec:
+     metadata:
+       creationTimestamp: null
+       labels:
+         node-role.kubernetes.io/infra: ""
+     providerSpec:
+       value:
+         apiVersion: gcpprovider.openshift.io/v1beta1
+         canIPForward: false
+         credentialsSecret:
+           name: gcp-cloud-credentials
+         deletionProtection: false
+         disks:
+         - autoDelete: true
+           boot: true
+           image: ocp4-8bjtp-rhcos-image
+           labels: null
+           sizeGb: 128
+           type: pd-ssd
+         kind: GCPMachineProviderSpec
+         machineType: n1-standard-2
+         metadata:
+           creationTimestamp: null
+         networkInterfaces:
+         - network: ocp4-8bjtp-network
+           subnetwork: ocp4-8bjtp-worker-subnet
+         projectID: gcloud-ocp4-273122
+         region: us-east1
+         serviceAccounts:
+         - email: ocp4-8bjtp-w@gcloud-ocp4-273122.iam.gserviceaccount.com
+           scopes:
+           - https://www.googleapis.com/auth/cloud-platform
+         tags:
+         - ocp4-8bjtp-worker
+         userDataSecret:
+           name: worker-user-data
+         zone: us-east1-b
+ 
+
+
+
+Change all machine-role and machine-type to infra:
+
+sed -i  s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g machineset-ocp4-8bjtp-i-b.yaml
+
+5. Create the new machineset and check under machines if it start to spawn, check under Google Cloud console the new machine creation, after Gcloud console starts the machine check under oc get nodes to see if it was properly created and remains Ready.
+
+oc create -f machineset-ocp4-8bjtp-i-b.yaml
+
+6. Apply taints to the nodes (infra ones):
+
+oc adm taint nodes -l role=infra infra=reserved:NoSchedule infra=reserved:NoExecute
+
+
+7. Move the monitoring stack (openshift-monitoring) to the infra nodes using the tolerations arguments inside configmap according to the following example:
+
+
+
+cat <<EOF > cluster-monitoring-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+ name: cluster-monitoring-config
+ namespace: openshift-monitoring
+data:
+ config.yaml: |+
+   alertmanagerMain:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   prometheusK8s:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   prometheusOperator:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   grafana:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   k8sPrometheusAdapter:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   kubeStateMetrics:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   telemeterClient:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+   openshiftStateMetrics:
+     nodeSelector:
+       node-role.kubernetes.io/infra: ""
+     tolerations:
+     - key: infra
+       value: reserved
+       effect: NoSchedule
+     - key: infra
+       value: reserved
+       effect: NoExecute
+EOF
+ 
+oc create -f cluster-monitoring-configmap.yaml
+
+
+8. Update machine-config-daemon in order to update machine count under machines results, otherwise machine count will appear incorrectly number of machines under its type.
+
+oc patch ds machine-config-daemon -n openshift-machine-config-operator  --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
+
+
+9. Check if machine config pool is showed properly count machines:
 
 ----
 oc get mcp
@@ -56,314 +447,20 @@ master   rendered-master-ad0c6159fb80bdfd9d60a9d6adc65088   True      False     
 worker   rendered-worker-aeb3c0e6e6db49f6487a37f0e3665b00   True      False      False      3              3                   3                     0                      3h39m
 ----
 
-. Taint the infra nodes:
 
-----
-oc adm taint nodes -l role=infra infra=reserved:NoSchedule infra=reserved:NoExecute
-oc adm taint nodes -l role=router router=reserved:NoSchedule router=reserved:NoExecute
-----
+10. Update the cluster on the web console gui  and check if all nodes had been updated to the same version.
 
-=== Move components to the Infra Nodes
 
-==== Router
+RESULT: Success. The cluster is updated and only projects with correct taints and toleration are provisioned to the infra nodes. The task has been accomplished accordingly.
 
-oc patch ingresscontroller/default -n  openshift-ingress-operator  --type=merge -p '{"spec":{"nodePlacement": {"nodeSelector": {"matchLabels": {"node-role.kubernetes.io/infra": ""}},"tolerations": [{"effect":"NoSchedule","key": "router","value": "reserved"},{"effect":"NoExecute","key": "router","value": "reserved"}]}}}'
 
-oc patch ingresscontroller/default -n openshift-ingress-operator --type=merge -p '{"spec":{"replicas": 3}}'
+Reference Docs: 
 
-==== Registry
+https://docs.google.com/document/d/1humfDiEhkOd_xlQjjLWLEwk1bTiT3HDxUx5btq3jQMk/edit#
 
-oc patch config/cluster --type=merge -p '{"spec":{"nodeSelector": {"node-role.kubernetes.io/infra": ""},"tolerations": [{"effect":"NoSchedule","key": "infra","value": "reserved"},{"effect":"NoExecute","key": "infra","value": "reserved"}]}}'
+https://docs.google.com/document/d/1PXsSALyVUIAQSYfQts8iQ-qJEda5uz0CBojt5IQn3QM/edit#heading=h.thskvxgb5s7e
 
-==== Monitoring
-
-cat <<EOF > cluster-monitoring-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cluster-monitoring-config
-  namespace: openshift-monitoring
-data:
-  config.yaml: |+
-    alertmanagerMain:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    prometheusK8s:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    prometheusOperator:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    grafana:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    k8sPrometheusAdapter:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    kubeStateMetrics:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    telemeterClient:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-    openshiftStateMetrics:
-      nodeSelector:
-        node-role.kubernetes.io/infra: ""
-      tolerations:
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute
-EOF
-
-oc create -f cluster-monitoring-configmap.yaml
+https://docs.google.com/document/d/1XyR4dJiEVF95m0BbBMbvI2NQM4OBviDUM1ycQf9MzLA/edit#heading=h.24r766r2b4or
 
 
 
-==== Logging
-
-
-----
-oc edit ClusterLogging instance -n openshift-logging
-
-apiVersion: logging.openshift.io/v1
-kind: ClusterLogging
-metadata:
-  creationTimestamp: '2020-04-30T22:14:17Z'
-  generation: 1
-  name: instance
-  namespace: openshift-logging
-  resourceVersion: '116934'
-  selfLink: >-
-    /apis/logging.openshift.io/v1/namespaces/openshift-logging/clusterloggings/instance
-  uid: 0de1c2ac-9a47-466b-8111-c7a785233274
-spec:
-  collection:
-    logs:
-      tolerations: 
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute       
-      fluentd: {}
-      type: fluentd
-  curation:
-    curator:
-      tolerations: 
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute    
-      schedule: 30 3 * * *
-    type: curator
-  logStore:
-    elasticsearch:
-      tolerations: 
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute    
-      nodeCount: 1
-      redundancyPolicy: ZeroRedundancy
-      storage:
-        size: 100G
-        storageClassName: thin
-    type: elasticsearch
-  managementState: Managed
-  visualization:
-    kibana:
-      tolerations: 
-      - key: infra
-        value: reserved
-        effect: NoSchedule
-      - key: infra
-        value: reserved
-        effect: NoExecute    
-      replicas: 1
-    type: kibana
-status:
-  collection:
-    logs:
-      fluentdStatus:
-        daemonSet: fluentd
-        nodes:
-          fluentd-2w4pw: master-2.ocp4.rhbr-labs.com
-          fluentd-9c2g7: worker-1.ocp4.rhbr-labs.com
-          fluentd-9sl9m: worker-2.ocp4.rhbr-labs.com
-          fluentd-lfz2p: master-0.ocp4.rhbr-labs.com
-          fluentd-q9lpz: master-1.ocp4.rhbr-labs.com
-          fluentd-qd2zn: worker-0.ocp4.rhbr-labs.com
-        pods:
-          failed: []
-          notReady: []
-          ready:
-            - fluentd-2w4pw
-            - fluentd-9c2g7
-            - fluentd-9sl9m
-            - fluentd-lfz2p
-            - fluentd-q9lpz
-            - fluentd-qd2zn
-  curation:
-    curatorStatus:
-      - cronJobs: curator
-        schedules: 30 3 * * *
-        suspended: false
-  logStore:
-    elasticsearchStatus:
-      - ShardAllocationEnabled: shard allocation unknown
-        cluster:
-          numDataNodes: 0
-          initializingShards: 0
-          numNodes: 0
-          activePrimaryShards: 0
-          status: cluster health unknown
-          pendingTasks: 0
-          relocatingShards: 0
-          activeShards: 0
-          unassignedShards: 0
-        clusterName: elasticsearch
-        nodeConditions:
-          elasticsearch-cdm-vx62fk4z-1:
-            - lastTransitionTime: '2020-04-30T22:14:20Z'
-              message: >-
-                0/10 nodes are available: 2 node(s) had taints that the pod
-                didn't tolerate, 3 Insufficient cpu, 5 Insufficient memory.
-              reason: Unschedulable
-              status: 'True'
-              type: Unschedulable
-        nodeCount: 1
-        pods:
-          client:
-            failed: []
-            notReady:
-              - elasticsearch-cdm-vx62fk4z-1-5dfc97fbfc-c6gfn
-            ready: []
-          data:
-            failed: []
-            notReady:
-              - elasticsearch-cdm-vx62fk4z-1-5dfc97fbfc-c6gfn
-            ready: []
-          master:
-            failed: []
-            notReady:
-              - elasticsearch-cdm-vx62fk4z-1-5dfc97fbfc-c6gfn
-            ready: []
-  visualization:
-    kibanaStatus:
-      - deployment: kibana
-        pods:
-          failed: []
-          notReady: []
-          ready:
-            - kibana-54847866c8-ppkss
-        replicaSets:
-          - kibana-54847866c8
-          - kibana-6df7b7dcc7
-        replicas: 1
-
-
-
-==== Update DS
-
-oc patch ds machine-config-daemon -n openshift-machine-config-operator  --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
-
-oc patch ds node-ca -n openshift-image-registry --type=merge -p '{"spec": {"template": { "spec": {"tolerations":[{"operator":"Exists"}]}}}}'
-
----- Pecora Tests ---- (TEST 1- change only machine Set)
-
-1. clone a template from the current worker machine sets
-
-oc get machinesets machineSetName -o yaml > machineSet-original.yaml
-
-2. copy cloned machineset template unto new file to make proper changes
-
-cp machineSet-original.yaml machineSet-infra.yaml
-
-3. edit the variables according docs and engineer reference files:
-
-sed s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g
-
-4. Verify if vpc and group name are the same.
-
-5. Create the new machineset and check under machines if it start to spawn, check under Google Cloud console the new machine creation, after Gcloud console starts the machine check under oc get nodes to see if it was properly created and Ready.
-
-
---- Pecora Tests ---- (TEST 2 - machineconfig, machineconfigpool and  machine Set)
-
-1. clone a template from the current worker machine sets
-
-oc get machinesets machineSetName -o yaml > machineSet-original.yaml
-
-2. copy cloned machineset template unto new file to make proper changes
-
-cp machineSet-original.yaml machineSet-infra.yaml
-
-3. edit the variables according docs and engineer reference files:
-
-sed s/node-role.kubernetes.io\/worker=/node-role.kubernetes.io\/infra=/g
-
-4. Verify if vpc and group name are the same.
-
-5. Create the new machineset and check under machines if it start to spawn, check under Google Cloud co
-nsole the new machine creation, after Gcloud console starts the machine check under oc get nodes to see
- if it was properly created and Ready. 
-
-
---- Pecora Tests ---- (TEST 3 - Mcp pool and taints e toleration)
