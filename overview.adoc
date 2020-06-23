@@ -3,29 +3,34 @@
 
 ### Overview
 
-The OpenShift installation on vSphere is comprised of the following:
+The OpenShift installation on Google Cloud is based on accomplished the following:
 
-1. Prepare pre-requisites
-2. Pre-requisites validation
+1. Prepare prerequisites
+2. Prerequisites validation
 3. Ignition files creation
 4. Deploy on vSphere
 5. Post deployment configuration
 
-In this lab you will inspect in detail the pre-requisites and deploy a small cluster on vSphere from scratch.
 
-### Lab Environment
+=== Troubleshooting Openshift Installer
 
-This lab environment is built on Ravello and contains 6 ESXi with 16 vCPU and 64 GB. Each team will use its own ESXi and datastore to avoid concurrence problems.
+It is possible during the installation, you get an IPI error as following.
 
-image::images/overview-lab-env.png[Lab Environment on Ravello]
+[source]
+----
+ERROR Error: Error waiting for instance to create: Quota 'SSD_TOTAL_GB' exceeded.  Limit: 500.0 in region us-east1.
+----
 
-### Infra Services
+To solve the problem you must request to increase quota, unfortunately you should request this only on GUI Console, so:
 
-A VM named infra-services has been set up with the following services for each cluster you will deploy:
+Go to Console --> IAM & Admin --> Quotas
 
-- DHCP: DHCP is configured to provide ip and hostname for VMs of each cluster.
-- DNS: Infra-services is the internal DNS, providing A/PTR and SRV records for each cluster.
-- Webserver: A apache webserver is already configured in infra-services machine to host the ignition file for each cluster.
-- HAProxy: Infra-services is configured with one public ip for each cluster. HAProxy is set up to balance requisitions from each ip to the corresponding cluster.
+Filter the Quota type --> All Quotas, Service --> All Services, Metric --> Persistent Disk SSD (GB) and Location--> us-east1 (because this is the region that install-config.yaml is trying to create the objects).
 
-image::images/overview-workshop-vsphere-env.png[Workshop environment]
+Usually, the quota is 500 GB which is not enough to create all resources. Check in the left blank checkbox and choose edit quotas. Ask to increase from 500GB to 1024GB (don't ask much resource because your approval can pass to a filter instead of auto approval) 
+
+image::https://raw.githubusercontent.com/pecorawal/images/master/gcloud-editquotas.png[]
+
+Wait for an email confirmation that the quota was increased and then destroy the previous install attempt and start a fresh new installation.
+
+I think this article is useful to everyone. And remember, share to multiply, always!

@@ -1,240 +1,298 @@
-# Workshop Hands-on - Deploy OCP 4.x UPI on vSphere
+# Workshop Hands-on - Deploy OCP 4.x on Google Cloud
 
 ### Prerequisites Preparation
 
-The following services are pre-requisites for OpenShift 4.2 installation on vSphere (https://docs.openshift.com/container-platform/4.2/installing/installing_vsphere/installing-vsphere.html#installation-infrastructure-user-infra_installing-vsphere[see more on the official docs for OpenShift]) :
+IMPORTANT: I supposed you have a non-free credits subscription on Google Clou d to properly create and configure the steps below.
 
-- DHCP
-- DNS
-- Load Balancer
-- Webserver (to host bootstrap ignition file)
-- vSphere 6.7U2
 
-### Inspect pre-requisites
+The first thing on Google Cloud Platform is to create a new project. As soon as you created the project, go to your Dashboard and take a note of project name and project id. These values will be used in a future. A sample below demonstrates how to accomplish it.
 
-All pre-requisites already has been prepared for you, however it is important to understand well these configurations. 
+image::https://raw.githubusercontent.com/pecorawal/images/master/gcloud-projectid.png[]
 
-Access the infra-services node and inspect each pre-requisites below.
 
-*_DNS Settings:_*
+
+
+=== Download your Gcloud Sdk
+
+Next, you need to download gcloud sdk, go to  https://cloud.google.com/sdk/docs/quickstart-macos?authuser=2 and choose the OS that properly fits you. Follow the installation steps on the site.
+
+You can find a list of another SDK types which best fit on your machine on: link:https://cloud.google.com/sdk/docs/downloads-versioned-archives[]
+
+
+=== Initialize the sdk
+
+To initialize the sdk, you must fisrt update all components under the gcloud installation directory
+
+[source]
 ----
-[user0@infra-services ~]$ sudo cat /etc/named.conf
-acl internal_nets { 10.0.0.0/16; };
-options {
-listen-on port 53 { 127.0.0.1; 10.0.0.5; };
-listen-on-v6 port 53 { none; };
-directory "/var/named";
-dump-file "/var/named/data/cache_dump.db";
-statistics-file "/var/named/data/named_stats.txt";
-memstatistics-file "/var/named/data/named_mem_stats.txt";
-secroots-file "/var/named/data/named.secroots";
-(...)
-zone "ocp1.rhbr-labs.com" {
-type master;
-file "ocp1.rhbr-labs.com.zone";
-allow-query { any; };
-allow-transfer { none; };
-allow-update { none; };
-};
-zone "1.0.10.in-addr.arpa" {
-type master;
-file "1.0.10.in-addr.arpa.zone";
-allow-query { any; };
-allow-transfer { none; };
-allow-update { none; };
-};
-
-[user0@infra-services ~]# sudo cat /var/named/ocp1.rhbr-labs.com.zone 
-$TTL    604800
-@       IN      SOA     infra-services.ocp1.rhbr-labs.com. admin.ocp1.rhbr-labs.com. (
-            3       ; Serial
-            604800     ; Refresh
-            86400     ; Retry
-            2419200     ; Expire
-            604800 )   ; Negative Cache TTL
-;
-; name servers - NS records
-    IN      NS      infra-services.ocp1.rhbr-labs.com.
-
-; name servers - A records
-infra-services IN A 10.0.0.5
-bootstrap-0 IN A 10.0.1.100
-master-0 IN A 10.0.1.101
-worker-0 IN A 10.0.1.102
-api IN A 10.0.0.5
-api-int IN A 10.0.0.5
-apps IN A 10.0.0.5
-*.apps IN A 10.0.0.5
-etcd-0 IN A 10.0.1.101
-; The SRV records ...note the trailing dot at the end.
-_etcd-server-ssl._tcp IN SRV 0 10 2380 etcd-0.ocp1.rhbr-labs.com.
-
-[user0@infra-services ~]# sudo cat /var/named/1.0.10.in-addr.arpa.zone 
-$TTL    604800
-@       IN      SOA     infra-services.rhbr-labs.com. admin.rhbr-labs.com. (
-                        3         ; Serial
-                        604800         ; Refresh
-                        86400         ; Retry
-                        2419200         ; Expire
-                        604800 )       ; Negative Cache TTL
-; name servers
-    IN      NS      infra-services.rhbr-labs.com.
-
-; PTR Records
-100 IN PTR bootstrap-0.ocp1.rhbr-labs.com.
-101 IN PTR master-0.ocp1.rhbr-labs.com.
-102 IN PTR worker-0.ocp1.rhbr-labs.com.
+gcloud components update 
 ----
 
-*_DHCP:_*
+[source]
+----
+gcloud init --console-only
+
+See the output sample 
+
+Welcome! This command will take you through the configuration of gcloud.
+
+Your current configuration has been set to: [default]
+
+You can skip diagnostics next time by using the following flag:
+  gcloud init --skip-diagnostics
+
+Network diagnostic detects and fixes local network connection issues.
+Checking network connection...done.
+Reachability Check passed.
+Network diagnostic passed (1/1 checks passed).
+
+You must log in to continue. Would you like to log in (Y/n)?  Y # <1> 
+
+Go to the following link in your browser: # <2>
+
+    https://accounts.google.com/o/oauth2/auth?code_challenge=daksdaldajksdjaklandkakasdasdA%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fappengine.admin+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcompute+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Faccounts.reauth
+
+
+Enter verification code: 4/xwFLeky-AFVVtg2DI5AyvGcE3-E1-6DfEDgHMFzwhNOLfenKFOfQkb4
+You are logged in as: [anonymous@gmail.com].
+
+Pick cloud project to use: <3>
+ [1] hybrid-ridge-271915
+ [2] Create a new project
+Please enter numeric choice or text value (must exactly match list
+item):  1
+
+Your current project has been set to: [hybrid-ridge-271915].
+
+Not setting default zone/region (this feature makes it easier to use
+[gcloud compute] by setting an appropriate default value for the
+--zone and --region flag).
+See https://cloud.google.com/compute/docs/gcloud-compute section on how to set
+default compute region and zone manually. If you would like [gcloud init] to be
+able to do this for you the next time you run it, make sure the
+Compute Engine API is enabled for your project on the
+https://console.developers.google.com/apis page.
+
+Created a default .boto configuration file at [/Users/rpecora/.boto]. See this file and
+[https://cloud.google.com/storage/docs/gsutil/commands/config] for more
+information about configuring Google Cloud Storage.
+Your Google Cloud SDK is configured and ready to use!
+
+* Commands that require authentication will use rvspecora@gmail.com by default
+* Commands will reference project `hybrid-ridge-271915` by default
+Run `gcloud help config` to learn how to change individual settings
+
+This gcloud configuration is called [default]. You can create additional configurations if you work with multiple accounts and/or projects.
+Run `gcloud topic configurations` to learn more.
+
+Some things to try next:
+
+* Run `gcloud --help` to see the Cloud Platform services you can interact with. And run `gcloud help COMMAND` to get help on any gcloud command.
+* Run `gcloud topic --help` to learn about advanced features of the SDK like arg files and output formatting
 
 ----
-[user0@infra-services ~]# sudo cat /etc/dhcp/dhcpd.conf
-default-lease-time 900;
-max-lease-time 7200;
-subnet 10.0.0.0 netmask 255.255.0.0 {
-option routers 10.0.0.2;
-option subnet-mask 255.255.0.0;
-option domain-name-servers 10.0.0.5;
-next-server 10.0.0.5;
-}
+1. In this step, you must insert (Y) and the Google Credentials popup will appears, use your Google Cloud Credentials
+2. After login process is completed it will show an authorization link, just click and follow the screen steps
+2. You can opt-in to the project previously created to set as default to all next gcloud commands.
+ 
 
-#### CLUSTER OCP
-host bootstrap-0 {
-hardware ethernet 00:50:56:01:00:01;
-fixed-address 10.0.0.100;
-option host-name "bootstrap-0.ocp.rhbr-labs.com";
-}
-host master-0 {
-hardware ethernet 00:50:56:01:00:02;
-fixed-address 10.0.0.101;
-option host-name "master-0.ocp.rhbr-labs.com";
-}
-(...)
+
+=== Enabling Required Ocp 4 Services
+
+After create a profile of your default project, region and zone, you must enable proper services in order the IPI must be able to use Gcloud APIs.
+
+[source]
+----
+gcloud config set project hybrid-ridge-271915
+gcloud services enable compute.googleapis.com
+gcloud services enable cloudapis.googleapis.com
+gcloud services enable cloudresourcemanager.googleapis.com
+gcloud services enable dns.googleapis.com
+gcloud services enable iamcredentials.googleapis.com
+gcloud services enable iam.googleapis.com
+gcloud services enable servicemanagement.googleapis.com
+gcloud services enable serviceusage.googleapis.com
+gcloud services enable storage-api.googleapis.com
+gcloud services enable storage-component.googleapis.com
 ----
 
-*_HAProxy Load Balancer:_*
 
+=== Creating a Service account and Add an Identity Policy 
+
+IPI will use this service accounts to create and destroy objects to be used to Openshift 4.
+
+[source]
 ----
-[root@infra-services ~]# sudo cat /etc/haproxy/haproxy.cfg
-global
-log 127.0.0.1 local2
-chroot /var/lib/haproxy
-pidfile /var/run/haproxy.pid
-maxconn 4000
-user haproxy
-group haproxy
-daemon
-stats socket /var/lib/haproxy/stats
-ssl-default-bind-ciphers PROFILE=SYSTEM
-ssl-default-server-ciphers PROFILE=SYSTEM
+gcloud iam service-accounts create ocp4-sa --description "Service Account OCP 4" --display-name "OCP Service Account"
 
-defaults
-mode http
-log global
-option httplog
-option dontlognull
-option http-server-close
-option forwardfor except 127.0.0.0/8
-option redispatch
-retries 3
-(...)
-#### BEGIN CLUSTER0
-
-frontend ocp4-kubernetes-api-server
-mode tcp
-option tcplog
-bind api.ocp.rhbr-labs.com:6443
-default_backend ocp4-kubernetes-api-server
-
-frontend ocp4-kubernetes-api-int-server
-mode tcp
-option tcplog
-bind api-int.ocp.rhbr-labs.com:6443
-default_backend ocp4-kubernetes-api-server
-(...)
-
-backend ocp4-kubernetes-api-server
-mode tcp
-balance source
-server boostrap-0-0 bootstrap-0.ocp.rhbr-labs.com:6443 check
-server master-0-0 master-0.ocp.rhbr-labs.com:6443 check
-server master-1-0 master-1.ocp.rhbr-labs.com:6443 check
-server master-2-0 master-2.ocp.rhbr-labs.com:6443 check
-
-backend ocp4-machine-config-server
-mode tcp
-balance source
-server bootstrap-0-0 bootstrap-0.ocp.rhbr-labs.com:22623 check
-server master-0-0 master-0.ocp.rhbr-labs.com:22623 check
-server master-1-0 master-1.ocp.rhbr-labs.com:22623 check
-server master-2-0 master-2.ocp.rhbr-labs.com:22623 check
+Created service account [ocp4-sa].
 ----
 
-*_Apache Webserver:_*
+After enabling services and create service account you must give the permission to service account.
+
+[source]
 ----
-[root@infra-services ~]# cat /etc/httpd/conf/httpd.conf 
-#
-# This is the main Apache HTTP server configuration file.  It contains the
-# configuration directives that give the server its instructions.
-# See <URL:http://httpd.apache.org/docs/2.4/> for detailed information.
-# In particular, see 
+gcloud projects add-iam-policy-binding hybrid-ridge-271915 --member serviceAccount:ocp4-sa@hybrid-ridge-271915.iam.gserviceaccount.com --role roles/owner
 
-(...)
-#Listen 12.34.56.78:80
-Listen 8080
-----
-
-[NOTE]
-====
-Apache webserver was set to use port 8080 to avoid conflicts with haproxy that is running also in this same server. In a production environment you will use a dedicated Load Balancer so it is not required to change the Apache port.
-====
-
-
-
-### Pre-requisites validation
-
-Check if the A, PTR and SRV records of the DNS are correctly set:
-
-*Checking A records:*
-----
-export GUID="<GUID>"
-
-[user0@infra-services ~]$ dig bootstrap-0.ocp$GUID.rhbr-labs.com +short
-10.0.0.100
-[user0@infra-services ~]$ dig master-0.ocp$GUID.rhbr-labs.com +short
-10.0.0.101
-[user0@infra-services ~]$ dig worker-0.ocp$GUID.rhbr-labs.com +short
-10.0.0.102
+Updated IAM policy for project [hybrid-ridge-271915].
+bindings:
+- members:
+  - serviceAccount:service-952705263978@compute-system.iam.gserviceaccount.com
+  role: roles/compute.serviceAgent
+- members:
+  - serviceAccount:952705263978-compute@developer.gserviceaccount.com
+  - serviceAccount:952705263978@cloudservices.gserviceaccount.com
+  role: roles/editor
+- members:
+  - serviceAccount:ocp4-sa@hybrid-ridge-271915.iam.gserviceaccount.com
+  - user:ommitted@gmail.com
+  role: roles/owner
+etag: BwWhs5VtlJs=
+version: 1
 ----
 
-*Checking PTR records:*
+
+=== Create a Private Key Associated to a Service Account
+
+On the previous step, we create a service account and grant permission to be used as credentials between IPI installer, Google Cloud API and future Openshift cluster functions.
+
+Start listing the current service account keys and identify the key created at previous step.
+
+[source]
 ----
-[user0@infra-services ~]$ dig -x 10.0.0.100 +short
-bootstrap-0.ocp.rhbr-labs.com.
-[user0@infra-services ~]$ dig -x 10.0.0.101 +short
-master-0.ocp.rhbr-labs.com.
-[user0@infra-services ~]$ dig -x 10.0.0.102 +short
-worker-0.ocp.rhbr-labs.com.
+gcloud iam service-accounts list
+
+NAME                                    EMAIL                                                DISABLED
+Compute Engine default service account  952705263978-compute@developer.gserviceaccount.com   False
+OCP Service Account                     ocp4-sa@hybrid-ridge-271915.iam.gserviceaccount.com  False
 ----
 
-*Checking API records:*
+Create a json file private key to be used during installation
+
+[source]
 ----
-[user0@infra-services ~]$ dig api.ocp$GUID.rhbr-labs.com +short
-10.0.0.5
-[user0@infra-services ~]$ dig api-int.ocp$GUID.rhbr-labs.com +short
-10.0.0.5
+gcloud iam service-accounts keys create ocp4-key-ybrid-ridge-271915 --key-file-type json --iam-account ocp4-sa@hybrid-ridge-271915.iam.gserviceaccount.com
+
+created key [fc2e957ae308b57e566fd68871c602ad440e435a] of type [json] as [ocp4-key-ybrid-ridge-271915] for [ocp4-sa@hybrid-ridge-271915.iam.gserviceaccount.com]
 ----
 
-*Checking APPs wildcard record:*
+IMPORTANT:  At the previous step, the file named ocp4-key-ybrid-ridge-271915 is the one that you will be asked to path on the openshift-install installer. Keep this file under a directory that you have all inputs to OCP 4.
+
+
+
+=== Create a DNS Zone and delegate the NS to your DNS provider
+
+
+This is an important part of process and can cause a confusion during creation and DNS provider setup.
+You should create a subdomain zone of your main dns zone in order to delegate the Google Cloud DNS only the dns to openshift objects and not all parent DNS records.
+
+To make feasible, lets check the example:
+I have a DNS zone domain at Godaddy which calls "pec-labs.site" and I need I subdomain of this site named newgoogle.pec-labs.site. 
+We must create the subdomain at Gcloud as follows:
+
+[source]
 ----
-[user0@infra-services ~]$ dig *.apps.ocp$GUID.rhbr-labs.com +short
-10.0.0.5
+gcloud dns managed-zones create newgoogle --description="OCP4 subdomain at Google Cloud" --dns-name=newgoogle.pec-labs.site                                      
+Created [https://dns.googleapis.com/dns/v1/projects/hybrid-ridge-271915/managedZones/newgoogle].
 ----
 
-*Checking SRV records:*
+Now, check the subdomain created and get the nameservers which we will use under our DNS provider (Godaddy, in this case). 
+
+[source]
 ----
-[user0@infra-services ~]$ dig _etcd-server-ssl._tcp.ocp$GUID.rhbr-labs.com SRV +short
-0 10 2380 etcd-0.ocp.rhbr-labs.com.
+gcloud dns managed-zones describe newgoogle
+creationTime: '2020-03-25T20:56:39.968Z'
+description: OCP4 subdomain at Google Cloud
+dnsName: newgoogle.pec-labs.site.
+id: '4911304450872339170'
+kind: dns#managedZone
+name: newgoogle
+nameServers:
+- ns-cloud-c1.googledomains.com.
+- ns-cloud-c2.googledomains.com.
+- ns-cloud-c3.googledomains.com.
+- ns-cloud-c4.googledomains.com.
+visibility: public
 ----
+TIP: Don't copy the dot punctuation at the end of nameserver records.
+
+
+Now, check how your DNS Zone parent domain must be setup:
+
+image::https://raw.githubusercontent.com/pecorawal/images/master/dns-godaddy.png[]
+
+Check if dns zone records are correctly answering.
+
+=== Download OCP client and installer and Prepare an install-config.yaml
+Go to https://cloud.redhat.com/openshift/, click on Create Cluster and Choose Google Cloud tile, under webpage GCP:select an installation type,  choose IPI option (Installer-provisioned infrastructure).
+
+Download the Openshift Installer, Secret and Command-line interface to the installation directory under your computer.
+
+Next, you need to create a ssh-key to be used as ssh key pair to trigger the installation and automation on Red Hat CoreOs.
+
+[source, yaml]
+----
+ssh-keygen -t rsa -b 4096 -N '' -f ./gcloud-key.rsa
+----
+Keep the private and pub key in a safe place in case that you  need to do any troubleshooting on Red Hat Openshift Cluster
+
+After setup all gcloud stuff it's now time to prepare a install-config.yaml, below is the sample with according previous steps.
+
+[source, yaml]
+----
+apiVersion: v1
+baseDomain: newgoogle.pec-labs.site
+controlPlane:
+  hyperthreading: Enabled
+  name: master
+  platform:
+    gcp:
+      type: n1-standard-4
+      zones:
+      - us-east1-b
+      - us-east1-c
+      - us-east1-d
+  replicas: 3
+compute:
+- hyperthreading: Enabled
+  name: worker
+  platform:
+    gcp:
+      type: n1-standard-2
+      zones:
+      - us-east1-b
+      - us-east1-c
+  replicas: 2
+metadata:
+  name: ocp4
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineCIDR: 10.0.0.0/16
+  networkType: OpenShiftSDN
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  gcp:
+    ProjectID: hybrid-ridge-271915
+    region: us-east1
+pullSecret: '{"auths":{"cloud.openshift.com":{"auth":"b3BlbnNoaWZ0LXJlbGVhc2UtZGV2K3BlY29yYTFoano2d214YW83ZmFkemVtcDhhcjZ1enMVNNR0dPN1dQOEROT0NXNzZGRVQ5MlhGQ0pVNjZVMldBNEhVTDNF","email":"anonymous@redhat.com"},"quay.io":{"auth":"b3BlbnNoaWZ0LXJlbGVhc2UtZGV2K3BlY29yYTFoano2d214YW83ZmFkemVtcDhhcjZ1enM1ZDpLSkVCU0w5Tkw4SUtUQ1pLQlZMNjE5RFZWMVNNR0dPN1dQOEROT0NXNzZGRVQ5MlhGQ0pVNjZVMldBNEhVTDNF","email":"anonymous@redhat.com"},"registry.connect.redhat.com":{"auth":"NTXXXXXXXXXNzZw==","email":"anonymous@redhat.com"},"registry.redhat.io":{"auth":"NTI0MZZZZZZZtGRmdfcjlJWENzZw==","email":"anonymous@redhat.com"}}}'
+fips: false
+sshKey: ssh-rsa AAAAB3= anonymous@saymyname
+----
+
+
+
+
+=== Start OCP 4 install
+
+
+
+
+
+
+
+
+
 
